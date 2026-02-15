@@ -1,0 +1,282 @@
+---
+title: "Modelado de Riesgo Agregado y Simulación Monte Carlo"
+author: "Joey Trejo Boyso"
+date: "`r Sys.Date()`"
+output: 
+  html_document:
+  theme: flatly
+toc: yes
+toc_float: yes
+---
+  
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, warning = FALSE, message = FALSE)
+# Librerías necesarias para el proyecto
+library(actuar)
+library(ggplot2)
+```
+
+## Introducción
+Este documento presenta la implementación analítica y computacional de diversos modelos de riesgo operativo. Para todos los casos analizados, el riesgo agregado de la compañía se define mediante el modelo colectivo:
+  
+  $$
+  S=\sum_{i=1}^N Y_i
+$$
+  Donde $N$ representa la frecuencia de los eventos de riesgo y $Y_i$ representa la severidad de cada evento individual. A lo largo del documento, se exploran métodos de cálculo exacto (Recursión de Panjer), aproximaciones (Normal con corrección por continuidad) y validaciones empíricas mediante simulaciones de Monte Carlo en R.
+
+---
+  
+## Caso 1: Cálculo de Momentos en Modelos Colectivos
+  
+  **Planteamiento:**
+  Sea $S$ la variable aleatoria que mide el riesgo de una compañía bajo un modelo colectivo, donde las funciones generadoras de momentos de la severidad ($Y_i$) y de la frecuencia ($N$) están dadas por:
+  
+  $$
+  M_Y(t)= 0.7+0.3e^{(t)} \hspace{1cm} \& \hspace{1cm} M_N(t)=\exp\left[ 5\left(e^{t}-1\right) \right]
+$$
+  
+### 1.1 Cálculo de la Esperanza $\mathbb{E}[S]$
+  Primero, analizamos si las funciones generadoras de momentos tienen alguna distribución conocida. Vemos que $N$ sigue una distribución Poisson de parámetro 5, pues en general se tiene el siguiente resultado:
+  $$
+  X \sim \text{Poisson}(\lambda) \iff M_X(t) = \exp(\lambda(e^t - 1))
+$$
+  Por lo que podemos concluir que $N \sim \text{Poisson}(5)$.
+
+Del mismo modo, para la variable de la severidad tenemos el siguiente resultado general:
+  $$
+  X \sim \text{Bernoulli}(p) \iff M_X(t) = 1 - p + pe^t
+$$
+  De donde identificamos que $p=0.3$. De este modo:
+  $$
+  Y \sim \text{Bernoulli}(0.3)
+$$
+  
+  Aplicando la propiedad de la esperanza para el modelo colectivo:
+  $$
+  \mathbb E[S]=\mathbb E[N]\mathbb E[Y]
+$$
+  Sabemos que la esperanza de una Poisson es su parámetro y la de una Bernoulli es $p$:
+  $$
+  \mathbb E[N] = 5 \hspace{1cm} \text{y} \hspace{1cm} \mathbb E[Y] = 0.3
+$$
+  Por lo tanto:
+  $$
+  \mathbb E[S] = 5 \times 0.3 = 1.5
+$$
+  
+### 1.2 Cálculo de $\mathbb{E}[e^S]$
+  Identificamos que esto es la definición de la función generadora de momentos de $S$ evaluada en $t=1$. En general se tiene:
+  $$
+  M_S(t) := \mathbb{E}[e^{t \cdot S}] =M_{N}\left(\ln \left(M_{Y}(t)\right)\right)
+$$
+  Aplicado a nuestro caso:
+  $$
+  M_S(1) = \mathbb{E}[e^S] =M_{N}\left(\ln \left(M_{Y}(1)\right)\right)
+$$
+  Sustituyendo las funciones generadoras de momentos por las respectivas de cada distribución:
+  $$
+  M_S(1) = \exp\left[5\left(e^{\ln[M_Y(1)]} - 1\right)\right]
+$$
+  Desarrollando esta expresión:
+  $$
+  M_S(1)=\exp[5(M_Y(1) - 1)] = \exp[5( (0.7 + 0.3e) - 1 )] = \exp[5( 0.3e - 0.3 )]
+$$
+  Evaluando numéricamente obtenemos:
+  $$
+  \mathbb{E}[e^S] = M_S(1) \approx 13.1632
+$$
+  
+  ---
+  
+## Caso 2: Aproximación Normal con Corrección por Continuidad
+  
+  **Planteamiento:**
+  A partir del caso anterior, buscamos obtener un valor $z$ tal que la probabilidad acumulada $F_S(4)$ se aproxime mediante la distribución normal estándar $\Phi(z)$.
+
+Notamos que tanto la frecuencia como la severidad son discretas. Para aplicar la aproximación normal de manera robusta, aplicamos una corrección por continuidad expandiendo el intervalo.
+$$
+  \mathbb{P}[n\leq S\leq m]\approx \mathbb{P}\left[n-\frac{1}{2}\leq S\leq m+\frac{1}{2}\right]
+$$
+  En nuestro caso:
+  $$
+  F_S(4) \approx \mathbb{P}\left[S \le 4 + \frac{1}{2}\right] = \mathbb{P}\left[S \le 4.5\right]
+$$
+  Procedemos a estandarizar la variable:
+  $$
+  \mathbb{P}\left[ \frac{S - \mathbb E[S]}{\sqrt{\text{Var}(S)}} \le \frac{4.5 - \mathbb E[S]}{\sqrt{\text{Var}(S)}} \right]
+$$
+  La varianza se obtiene mediante el siguiente teorema:
+  $$
+  Var(S)=Var(N)\mathbb{E}^2[Y]+Var(Y)\mathbb{E}[N]
+$$
+  Sustituyendo los parámetros ya conocidos ($N \sim \text{Poi}(5)$, $Y \sim \text{Ber}(0.3)$):
+  $$
+  Var(N) = 5 = \mathbb{E}[N]
+$$
+  $$
+  \mathbb{E}^2[Y] = (0.3)^2 = 0.09
+$$
+  $$
+  Var(Y)=p(1−p)=0.3(0.7)=0.21
+$$
+  Se sigue que:
+  $$
+  Var(S)= 5(0.09) + 0.21(5) = 1.5
+$$
+  Por lo tanto:
+  $$
+  \mathbb{P}\left[ Z \le \frac{4.5 - 1.5}{\sqrt{1.5}} \right]  = \Phi\left(\frac{3}{\sqrt{1.5}}\right) = \Phi(2.44949)
+$$
+  Concluimos que el valor requerido es $z = 2.44949$.
+
+---
+  
+## Caso 3: Suma de Modelos de Poisson Compuesto
+  
+  **Planteamiento:**
+  Sea $S = S_1 + S_2$, donde $S_j$ es el riesgo de una compañía que sigue el siguiente modelo compuesto asumiendo independencia:
+  $$
+  S_j\sim \text{PoiComp}\left(\lambda_j=5j,F_{Y_j}(t)=\left(1-e^{-2jt}\right)\mathbb{I}_{(t\ge0)}^{(t)}\right)
+$$
+  
+  Sabemos que si $S_1$ y $S_2$ tienen distribución Poisson Compuesta y son independientes, su suma sigue una distribución Poisson Compuesta con parámetro $\lambda = \lambda_1 + \lambda_2$ y función de distribución de severidad $F(x) = \sum \frac{\lambda_j}{\lambda}F_j(x)$.
+
+Desarrollando los componentes:
+  $$
+  S_1\sim \text{PoiComp}\left(\lambda_1=5, F_{Y_1}(t)=\left(1-e^{-2t}\right)\mathbb{I}_{(t\ge0)}^{(t)}\right)
+$$
+  $$
+  S_2\sim \text{PoiComp}\left(\lambda_2=10, F_{Y_2}(t)=\left(1-e^{-4t}\right)\mathbb{I}_{(t\ge0)}^{(t)}\right)
+$$
+  
+### 3.1 Esperanza $\mathbb{E}[S]$
+  Por linealidad y propiedades del modelo compuesto:
+  $$
+  \mathbb{E}[S] = \lambda_{1} \mathbb{E}[Y_{1}] +\lambda_{2} \mathbb{E}[Y_{2}]
+$$
+  Reconocemos que las severidades tienen forma de distribución Exponencial ($X \sim \text{Exp}(\theta) \iff F_X(x) = 1 - e^{-\theta x}$):
+  * $Y_1 \sim \text{Exp}(\theta_1 = 2) \implies \mathbb{E}[Y_1] = 1/2 = 0.5$
+  * $Y_2 \sim \text{Exp}(\theta_2 = 4) \implies \mathbb{E}[Y_2] = 1/4 = 0.25$
+  
+  Sustituyendo:
+  $$
+  \mathbb{E}[S] = 5(0.5) + 10(0.25) = 5
+$$
+  
+### 3.2 Varianza $Var(S)$
+  Bajo el supuesto de independencia, la covarianza es cero:
+  $$
+  \text{Var}[S] = \lambda_1 \mathbb{E}[Y_1^2] + \lambda_2 \mathbb{E}[Y_2^2]
+$$
+  Calculamos los segundos momentos ($\mathbb{E}[Y^2] = \text{Var}(Y) + (\mathbb{E}[Y])^2$):
+  * Para $Y_1$: $\mathbb{E}[Y_1^2] = (1/4) + (1/2)^2 = 1/2$
+  * Para $Y_2$: $\mathbb{E}[Y_2^2] = (1/16) + (1/4)^2 = 1/8$
+  
+  Finalmente:
+  $$
+  \text{Var}[S] = 5(1/2) + 10(1/8) = 3.75
+$$
+  
+  ---
+  
+## Caso 4: Resolución Exacta (Panjer) vs. Simulación Muestral (Monte Carlo)
+  
+  **Planteamiento:**
+  Sea $S\sim\text{PoiComp}\left(\lambda=3,F_{Y}\right)$ donde $Y$ tiene soporte discreto: $\mathbb{P}[Y=1] = 2/3$ y $\mathbb{P}[Y=2] = 1/3$. 
+
+### 4.1 Enfoque Teórico (Fórmula de Panjer)
+La frecuencia distribuye Poisson, familia $(a,b,0)$ con $a = 0$ y $b = \lambda = 3$. Evaluamos recursivamente:
+  
+  **Para $S=0$:**
+  $$
+  g_0 = P(N=0) = e^{-3} \approx 0.049787
+$$
+  
+  **Para $S=1$:**
+  $$
+  g_1 = \left(\frac{3 \cdot 1}{1}\right) P(Y=1) g_{0} = 3 \left(\frac{2}{3}\right) e^{-3} = 2e^{-3} \approx 0.099574
+$$
+  
+  **Para $S=2$:**
+  $$
+  g_2 = \left[\frac{3}{2} P(Y=1) g_{1}\right] + \left[3 P(Y=2) g_0\right] = 3e^{-3} \approx 0.149361
+$$
+  
+### 4.2 Implementación Computacional en R
+  
+  Validamos nuestro marco teórico programando el algoritmo de Panjer y comparándolo contra una simulación de Monte Carlo de $1,000,000$ de iteraciones utilizando la librería `actuar`.
+
+```{r panjer_simulacion}
+# 1. Función Teórica de Panjer
+Panjer <- function(r,a,b,p0,f,todo=F){
+  g <- 0:r
+  names(g) <- 0:r
+  names(f) <- 1:(length(f))
+  
+  for(s in 0:r){
+    if(s==0){
+      g["0"] = p0
+    } else {
+      aux = 0
+      for(j in 1:(min(s,length(f)))){
+        aux = aux + (a+b*j/s)*f[as.character(j)]*g[as.character(s-j)]
+      }
+      g[as.character(s)] = aux
+    }
+  }
+  if(todo) return(g) else return(g[as.character(r)])
+}
+
+# Parámetros del modelo
+lambda <- 3
+p0 <- exp(-lambda)
+f <- c(2/3, 1/3)
+names(f) <- 1:2
+
+# Cálculo Teórico
+probas_teo <- Panjer(r = 2, a = 0, b = lambda, p0 = p0, f = f, todo = TRUE)
+print("Probabilidades Teóricas (Panjer):")
+print(probas_teo)
+
+# 2. Simulación Muestral (Monte Carlo)
+set.seed(123)
+n_sim <- 1000000  
+
+rY <- function(n) {
+  sample(x = 1:2, size = n, replace = TRUE, prob = c(2/3, 1/3))
+}
+
+S_sim <- actuar::rcompound(n = n_sim,
+                           model.freq = rpois(lambda = lambda),
+                           model.sev = rY())
+
+prob_muestrales <- prop.table(table(S_sim))[1:3]
+print("Probabilidades Simuladas (Monte Carlo):")
+print(prob_muestrales)
+```
+
+### 4.3 Visualización de Resultados
+Conforme a la Ley de los Grandes Números, las probabilidades empíricas convergen a las probabilidades teóricas generadas por el modelo recursivo. A continuación, se ilustra la precisión del modelo:
+  
+```{r grafico_comparativo, echo=FALSE}
+# Preparación de datos para graficar
+df_plot <- data.frame(
+  S = rep(c("S=0", "S=1", "S=2"), 2),
+  Probabilidad = c(probas_teo, prob_muestrales),
+  Metodo = rep(c("1. Teórica (Panjer)", "2. Simulación (Monte Carlo)"), each = 3)
+)
+
+# Gráfico comparativo
+ggplot(df_plot, aes(x = S, y = Probabilidad, fill = Metodo)) +
+  geom_bar(stat = "identity", position = "dodge", color = "black", alpha = 0.8) +
+  scale_fill_manual(values = c("#2C3E50", "#E74C3C")) +
+  theme_minimal() +
+  labs(title = "Convergencia del Modelo de Riesgo Agregado",
+       subtitle = "Comparación Exacta vs. 1,000,000 iteraciones",
+       x = "Pérdida Agregada (S)",
+       y = "Probabilidad") +
+  theme(legend.position = "bottom",
+        text = element_text(size = 12))
+```
+
+**Conclusión:** La convergencia es evidente. Esto nos permite interpretar con alto grado de certidumbre que es más probable que la pérdida total de la compañía sea de 2 unidades monetarias (~14.93%) a que sea de 1 unidad monetaria (~9.95%).
